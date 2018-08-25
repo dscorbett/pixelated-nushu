@@ -15,11 +15,17 @@ from pyforms.controls import *
 ROOT_DIR = Path(__file__).parent
 AUTO_DIR = ROOT_DIR / 'auto'
 INPUT_PNG_PATTERN = str(AUTO_DIR  / 'input' / '{}.png')
+OUTPUT_GLYPH_PATTERN = str(AUTO_DIR / 'glyphs' / '{}.glyph')
 OUTPUT_PARAMS_PATTERN = str(AUTO_DIR / 'params' / '{}.png')
 OUTPUT_PNG_PATTERN = str(AUTO_DIR / 'output' / '{}.png')
 B_INPUT = str(ROOT_DIR / 'temp_b_q.png')
 B_OUTPUT = str(ROOT_DIR / 'temp_b_output.png')
 EXTRA_BORDER = 50
+
+BYTES = ['{:08b}'.format(x).replace('0', '\x00').replace('1', '#')[::-1].encode() for x in range(0, 256)]
+
+def bytes_or(a, b):
+    return bytes(x or y for x, y in zip(a, b)).decode()
 
 def add_border(in_path, out_path):
     """The widget crops all images slightly at the top and bottom, so
@@ -71,11 +77,11 @@ class Pixelator(BaseWidget):
         subprocess.call('''convert {} -negate -morphology Thinning:-1 Skeleton -negate -resize {}%x100% - |
                 magick - -set option:wd "%[fx:max(w,h)]" -set option:ht "%[fx:max(w,h)]" -gravity center -extent "%[wd]x%[ht]" - |
                 convert - -resize 16x16 +dither '''
-                '''-threshold {}% '''
-                #'''-posterize 5 '''
-                '''-scale 233 -density 72 {}'''.format(
+                '''-threshold {}% -write {}'''.format(
             input_file, self._width.value, self._threshold.value, output_file),
             shell=True)
+        subprocess.call('''convert {} {}.mono'''.format(output_file, output_file), shell=True)
+        subprocess.call('''convert {} -scale 233 -density 72 {}'''.format(output_file, output_file), shell=True)
         add_border(input_file, B_INPUT)
         add_border(output_file, B_OUTPUT)
         self._input_file.value = B_INPUT
@@ -85,8 +91,25 @@ class Pixelator(BaseWidget):
         if current_control in [self._width, self._threshold] or not os.path.exists(output_params_file):
             with open(output_params_file, 'w') as f:
                 f.write(str(self._width.value) + ' ' + str(self._threshold.value))
+        with open(output_file + '.mono', 'rb') as mono:
+            with open(OUTPUT_GLYPH_PATTERN.format(cp), 'w') as f:
+                line_pair = 0
+                while True:
+                    try:
+                        b1, b2, b3, b4 = mono.read(4)
+                    except ValueError:
+                        break
+                    p = b'   |   |'
+                    print(bytes_or(BYTES[b1], p), end='', file=f)
+                    print(bytes_or(BYTES[b2], p), file=f)
+                    if line_pair % 2:
+                        p = b'___|___|'
+                    print(bytes_or(BYTES[b3], p), end='', file=f)
+                    print(bytes_or(BYTES[b4], p), file=f)
+                    line_pair += 1
 
 if __name__ == "__main__":
+    Path(OUTPUT_GLYPH_PATTERN).parent.mkdir(exist_ok=True)
     Path(OUTPUT_PARAMS_PATTERN).parent.mkdir(exist_ok=True)
     Path(OUTPUT_PNG_PATTERN).parent.mkdir(exist_ok=True)
     start_app(Pixelator, geometry=(200, 200, 800, 400))
