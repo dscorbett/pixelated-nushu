@@ -11,6 +11,7 @@ do
     t=$(convert $f -trim -format '%Y\n' info:)
     r=$(convert $f -rotate 180 -trim -format '%X\n' info:)
     b=$(convert $f -rotate 180 -trim -format '%Y\n' info:)
+    echo $f$'\t'$l$'\t'$t$'\t'$r$'\t'$b
     [ $l -lt $min_l ] && min_l=$l
     [ $t -lt $min_t ] && min_t=$t
     [ $r -lt $min_r ] && min_r=$r

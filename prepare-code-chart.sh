@@ -25,7 +25,7 @@ convert-page() {
             local png=auto/input/$(printf %X $((base+c*16+r))).png
             if [ ! -f $png ]
             then
-                convert $in -crop 239x350+$((leftm+439*c))+$((topm+549*r+41)) +repage $png
+                convert $in -crop 239x337+$((leftm+439*c))+$((topm+550*r+41)) +repage $png
             fi
         done
     done
