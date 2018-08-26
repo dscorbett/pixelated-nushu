@@ -25,18 +25,16 @@ convert-page() {
             local png=auto/input/$(printf %X $((base+c*16+r))).png
             if [ ! -f $png ]
             then
-                convert $in -crop 419x389+$((leftm+439*c))+$((topm+549*r+41)) +repage $png
+                convert $in -crop 239x350+$((leftm+439*c))+$((topm+549*r+41)) +repage $png
             fi
         done
     done
 }
 
 convert-pdf U16FE0.pdf[1] U16FE0.png
-convert-page U16FE0.png 0 0 1 1 0x16FE0 2053 1301 &
+convert-page U16FE0.png 0 0 1 1 0x16FE0 2143 1340 &
 
 convert-pdf U1B170.pdf[1-2] U1B170.png
-convert-page U1B170-1.png 0 12 0 15 0x1b170 1629 1294 &
-convert-page U1B170-2.png 0 11 0 15 0x1b240 1403 1294 &
-
-rm auto/input/1B2F[CDEF].png
+convert-page U1B170-1.png 0 12 0 15 0x1b170 1719 1333 &
+convert-page U1B170-2.png 0 11 0 15 0x1b240 1493 1333 &
 
