@@ -42,9 +42,20 @@ class Pixelator(BaseWidget):
     def __init__(self):
         super(Pixelator, self).__init__('Pixelator')
 
+        parser = argparse.ArgumentParser(description='Pixelize Nüshu glyphs.')
+        parser.add_argument('--phase', action='store_true', help='Change the x position of existing pixelations instead of creating new ones.')
+        args = parser.parse_args()
+        self._phase_mode = args.phase
+
         self._cp = ControlCombo('Code point')
-        self._width = ControlNumber('Width', default=100, minimum=0, maximum=1000)
-        self._threshold = ControlNumber('Threshold', default=80, maximum=99)
+        self._width = (
+            ControlLabel()
+            if self._phase_mode
+            else ControlNumber('Width', default=100, minimum=0, maximum=1000))
+        self._threshold = (
+            ControlNumber('Phase', minimum=-7, maximum=8)
+            if self._phase_mode
+            else ControlNumber('Threshold', default=80, maximum=99))
         self._input_file = ControlImage('Input')
         self._output_file = ControlImage('Output')
 
@@ -52,13 +63,7 @@ class Pixelator(BaseWidget):
         self._width.changed_event = lambda: self._redraw(self._width)
         self._threshold.changed_event = lambda: self._redraw(self._threshold)
 
-        parser = argparse.ArgumentParser(description='Pixelize Nüshu glyphs.')
-        parser.add_argument('--view', action='store_true', help='View existing pixelations instead of creating new ones.')
-        args = parser.parse_args()
-        self._viewer_mode = args.view
-        if self._viewer_mode:
-            self._width.enabled = False
-            self._threshold.enabled = False
+        self._previous_phase = 0
 
         self._cp += '16FE1'
         for cp in range(0x1B170, 0x1B2FB + 1):
@@ -73,36 +78,56 @@ class Pixelator(BaseWidget):
         cp = self._cp.text
         output_params_file = OUTPUT_PARAMS_PATTERN.format(cp)
         if current_control == self._cp:
-            try:
-                with open(output_params_file, 'r') as f:
-                    saved_width, saved_threshold = f.read().strip().split()
-                    if current_control != self._width:
+            if self._phase_mode:
+                self._previous_phase = 0
+                self._threshold.value = 0
+            else:
+                try:
+                    with open(output_params_file, 'r') as f:
+                        saved_width, saved_threshold = f.read().strip().split()
                         self._width.value = float(saved_width)
-                    if current_control != self._threshold:
                         self._threshold.value = float(saved_threshold)
-            except IOError:
-                pass
+                except IOError:
+                    pass
         input_file = INPUT_PNG_PATTERN.format(cp)
         add_border(input_file, B_INPUT)
         self._input_file.value = B_INPUT
         self._input_file.repaint()
-        if self._viewer_mode:
-            self._view(cp)
+        if self._phase_mode:
+            self._phase(current_control, cp)
         else:
             self._pixelate(current_control, cp, output_params_file, input_file)
 
-    def _view(self, cp):
-        with open(MANUAL_GLYPH_PATTERN.format(cp), 'rb') as f:
-            with open(B_OUTPUT + '.mono', 'w+b') as mono:
+    def _phase(self, current_control, cp):
+        if current_control == self._threshold:
+            phase = -int(self._threshold.value)
+            phase_delta = phase - self._previous_phase
+            self._previous_phase = phase
+        else:
+            phase_delta = 0
+        left_margin = 16
+        right_margin = 16
+        glyph_file = MANUAL_GLYPH_PATTERN.format(cp)
+        mono_file = B_OUTPUT + '.mono'
+        with open(glyph_file, 'rb') as f:
+            with open(mono_file, 'w+b') as mono:
                 while True:
-                    chunk = f.read(8)
-                    if not chunk:
+                    line = f.read(16)
+                    if not line:
                         break
-                    mono.write(BYTES_INV[b''.join(b'#' if b == ord(b'#') else b'\x00' for b in chunk)].to_bytes(1, 'little'))
-                    chunk = f.read(8)
-                    mono.write(BYTES_INV[b''.join(b'#' if b == ord(b'#') else b'\x00' for b in chunk)].to_bytes(1, 'little'))
+                    line = line[phase_delta:] + line[:phase_delta]
+                    try:
+                        left_margin = min(left_margin, line.index(b'#'))
+                        right_margin = min(right_margin, len(line) - 1 - line.rindex(b'#'))
+                    except ValueError:
+                        pass
+                    mono.write(BYTES_INV[b''.join(b'#' if b == ord(b'#') else b'\x00' for b in line[:8])].to_bytes(1, 'little'))
+                    mono.write(BYTES_INV[b''.join(b'#' if b == ord(b'#') else b'\x00' for b in line[8:])].to_bytes(1, 'little'))
                     f.read(1)  # newline
-        subprocess.call('convert -size 16x16 {}.mono -scale {} {}'.format(B_OUTPUT, SCALE_FACTOR, B_OUTPUT), shell=True)
+        if phase_delta:
+            self._write_glyph(mono_file, glyph_file)
+        self._width.value = 'Margins: {}, {}'.format(left_margin, right_margin)
+        subprocess.call('convert -size 16x16 {} -scale {} {}'.format(mono_file, SCALE_FACTOR, B_OUTPUT), shell=True)
         add_border(B_OUTPUT, B_OUTPUT)
         self._output_file.value = B_OUTPUT
         self._output_file.repaint()
@@ -123,8 +148,11 @@ class Pixelator(BaseWidget):
         if current_control in [self._width, self._threshold] or not os.path.exists(output_params_file):
             with open(output_params_file, 'w') as f:
                 f.write(str(self._width.value) + ' ' + str(self._threshold.value))
-        with open(output_file + '.mono', 'rb') as mono:
-            with open(OUTPUT_GLYPH_PATTERN.format(cp), 'w') as f:
+        self._write_glyph(output_file + '.mono', OUTPUT_GLYPH_PATTERN.format(cp))
+
+    def _write_glyph(self, mono_file, glyph_file):
+        with open(mono_file, 'rb') as mono:
+            with open(glyph_file, 'w') as f:
                 line_pair = 0
                 while True:
                     try:
